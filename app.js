@@ -1,4 +1,8 @@
 
+"use strict";
+
+// BrightIdea - Frontend application
+
 const form = document.querySelector("#idea-form");
 const topicInput = document.querySelector("#topic");
 const formatInput = document.querySelector("#format");
@@ -12,9 +16,8 @@ let latestPlan = "";
 
 function getSection(text, label) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
   const pattern = new RegExp(
-    `(?:^|\\n)\\s*${escaped}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*[A-Z][A-Z ]{1,35}\\s*:\\s*|$)`,
+    `(?:^|\\n)\\s*${escaped}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*(?:#{1,6}\\s*)?[A-Z][A-Z ]{1,35}\\s*:?\\s*(?:\\n|$)|$)`,
     "i"
   );
 
@@ -24,27 +27,21 @@ function getSection(text, label) {
 function cleanTitle(text) {
   return text
     .replace(/^#{1,6}\s*/, "")
-    .replace(/^\s*TITLE\s*:\s*/i, "")
+    .replace(/^\s*(?:TITLE|العنوان)\s*[:：]\s*/i, "")
     .replace(/\*\*/g, "")
     .replace(/^["']|["']$/g, "")
     .trim();
 }
 
 function getTitle(text) {
-  const explicitTitle = text.match(
-    /^\s*(?:#{1,3}\s*)?TITLE\s*:\s*(.+)$/im
-  );
-
-  if (explicitTitle?.[1]) {
-    return cleanTitle(explicitTitle[1]);
-  }
-
-  const oldTitle = text.match(
+  const patterns = [
+    /^\s*(?:#{1,3}\s*)?(?:TITLE|العنوان)\s*[:：]\s*(.+)$/im,
     /^\s*(?:#{1,3}\s*)?(?:Video Title|Title Idea|Title)\s*:\s*(.+)$/im
-  );
+  ];
 
-  if (oldTitle?.[1]) {
-    return cleanTitle(oldTitle[1]);
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return cleanTitle(match[1]);
   }
 
   const heading = text.match(/^#{1,3}\s+(.+)$/m);
@@ -60,21 +57,30 @@ function getTitle(text) {
   return topicInput.value.trim() || "Your AI-generated content";
 }
 
+function formatContent(text) {
+  return text
+    .replace(/\r/g, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
+    .replace(/^\s*---+\s*$/gm, "")
+    .trim();
+}
+
 function getOutline(text) {
   const section = getSection(text, "OUTLINE");
   const source = section || text;
-  const lines = source.split("\n");
   const headings = [];
   const seen = new Set();
 
-  for (const rawLine of lines) {
+  for (const rawLine of source.split("\n")) {
     const line = rawLine.trim();
 
     if (!line) continue;
 
     const isHeading = /^#{1,4}\s+/.test(line);
     const isNumbered = /^\d+[.)]\s+/.test(line);
-    const isBullet = /^\\?[-*]\s+/.test(line);
+    const isBullet = /^[-*]\s+/.test(line);
 
     if (!isHeading && !isNumbered && !isBullet) continue;
 
@@ -83,7 +89,6 @@ function getOutline(text) {
       .replace(/^\d+[.)]\s*/, "")
       .replace(/^[-*]\s*/, "")
       .replace(/\*\*/g, "")
-      .replace(/\*/g, "")
       .trim();
 
     if (!heading || heading.length > 120) continue;
@@ -103,27 +108,18 @@ function getOutline(text) {
   return headings.slice(0, 10);
 }
 
-function formatContent(text) {
-  return text
-    .replace(/\r/g, "")
-    .replace(/^#{1,6}\s*/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
-    .replace(/^\s*---+\s*$/gm, "")
-    .trim();
-}
-
 function renderContent(text, container) {
   container.replaceChildren();
 
   const lines = formatContent(text).split("\n");
   let currentCard = null;
+  let skipOutline = false;
 
   function addParagraph(parent, value, className = "scene-text") {
-    const p = document.createElement("p");
-    p.className = className;
-    p.textContent = value;
-    parent.appendChild(p);
+    const paragraph = document.createElement("p");
+    paragraph.className = className;
+    paragraph.textContent = value;
+    parent.appendChild(paragraph);
   }
 
   function startCard(title) {
@@ -140,51 +136,65 @@ function renderContent(text, container) {
   }
 
   function addLabel(parent, label, value) {
-    const heading = document.createElement("span");
-    heading.className = "scene-label";
-    heading.textContent = label;
-    parent.appendChild(heading);
+    const labelElement = document.createElement("span");
+    labelElement.className = "scene-label";
+    labelElement.textContent = label;
+    parent.appendChild(labelElement);
 
     if (value) addParagraph(parent, value);
   }
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
+
     if (!line) continue;
 
-    if (/^Scene\s+\d+\b/i.test(line)) {
+    // Skip the separate outline at the end of the generated response.
+    if (/^(?:OUTLINE|المخطط)\s*[:：]?\s*$/i.test(line)) {
+      skipOutline = true;
+      currentCard = null;
+      continue;
+    }
+
+    if (skipOutline) continue;
+
+    // Ignore title lines because the title has its own display area.
+    if (/^(?:TITLE|العنوان)\s*[:：]/i.test(line)) continue;
+
+    // Support English and Arabic scene headings.
+    const sceneMatch = line.match(
+      /^(?:Scene\s+\d+\b.*|المشهد\s+(?:الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|\d+)\s*[:：]?.*)$/i
+    );
+
+    if (sceneMatch) {
       startCard(line);
       continue;
     }
 
-    const section = line.match(
-      /^(HOOK|SCRIPT|CONTENT|PRODUCTION NOTES|CALL TO ACTION)\s*:\s*(.*)$/i
+    // Support section headings with or without a colon.
+    const sectionMatch = line.match(
+      /^(HOOK|SCRIPT|CONTENT|PRODUCTION NOTES|CALL TO ACTION|مقدمة|المحتوى|ملاحظات الإنتاج|دعوة لاتخاذ إجراء)(?:\s*[:：]\s*(.*))?$/i
     );
 
-    if (section) {
-      startCard(section[1]);
+    if (sectionMatch) {
+      startCard(sectionMatch[1]);
 
-      if (section[2]) {
-        addParagraph(currentCard, section[2]);
+      if (sectionMatch[2]) {
+        addParagraph(currentCard, sectionMatch[2]);
       }
 
       continue;
     }
 
-    if (/^TITLE\s*:/i.test(line)) continue;
-
-    if (/^OUTLINE\s*:/i.test(line)) {
-      currentCard = null;
-      continue;
-    }
-
-    const label = line.match(
-      /^(Narration|Voiceover|Voice-over|Visuals?|On-screen text|Sound|SFX|Camera|Action|Dialogue|Music|Transition)\s*:\s*(.*)$/i
+    // Support narration and production labels in both languages.
+    const labelMatch = line.match(
+      /^(Narration|Voiceover|Voice-over|Visuals?|On-screen text|Sound|SFX|Camera|Action|Dialogue|Music|Transition|السرد|المرئي|الموسيقى|النص على الشاشة|الصوت|الحوار)\s*[:：]\s*(.*)$/i
     );
 
-    if (label) {
+    if (labelMatch) {
       if (!currentCard) startCard("Content");
-      addLabel(currentCard, label[1], label[2]);
+
+      addLabel(currentCard, labelMatch[1], labelMatch[2]);
       continue;
     }
 
@@ -243,23 +253,30 @@ form.addEventListener("submit", async (event) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "Could not generate content.");
+      throw new Error(
+        data.error || "Could not generate content. Please try again."
+      );
     }
 
-    if (!data.result || typeof data.result !== "string") {
+    if (typeof data.result !== "string" || !data.result.trim()) {
       throw new Error("The AI returned an empty result. Please try again.");
     }
 
     latestPlan = data.result;
 
-    document.querySelector("#out-title").textContent =
-      getTitle(latestPlan);
+    const titleElement = document.querySelector("#out-title");
+    const contentElement = document.querySelector("#out-hook");
+    const outlineElement = document.querySelector("#out-outline");
+    const nextElement = document.querySelector("#out-next");
 
-    const content = document.querySelector("#out-hook");
-    renderContent(latestPlan, content);
+    if (!titleElement || !contentElement || !outlineElement || !nextElement) {
+      throw new Error("A required result element is missing from index.html.");
+    }
 
-    const outline = document.querySelector("#out-outline");
-    outline.replaceChildren();
+    titleElement.textContent = getTitle(latestPlan);
+    renderContent(latestPlan, contentElement);
+
+    outlineElement.replaceChildren();
 
     const headings = getOutline(latestPlan);
 
@@ -267,15 +284,15 @@ form.addEventListener("submit", async (event) => {
       for (const heading of headings) {
         const item = document.createElement("li");
         item.textContent = heading;
-        outline.appendChild(item);
+        outlineElement.appendChild(item);
       }
     } else {
       const item = document.createElement("li");
       item.textContent = "Your complete content is shown above.";
-      outline.appendChild(item);
+      outlineElement.appendChild(item);
     }
 
-    document.querySelector("#out-next").textContent =
+    nextElement.textContent =
       "Review your draft, verify factual claims, and refine it before publishing.";
 
     emptyState.classList.add("hidden");
@@ -300,10 +317,20 @@ copyButton.addEventListener("click", async () => {
   } catch {
     const temp = document.createElement("textarea");
     temp.value = latestPlan;
+    temp.style.position = "fixed";
+    temp.style.opacity = "0";
+
     document.body.appendChild(temp);
     temp.select();
-    document.execCommand("copy");
+
+    const copied = document.execCommand("copy");
     temp.remove();
+
+    if (!copied) {
+      alert("Copy failed. Please select and copy the content manually.");
+      return;
+    }
+
     copyButton.textContent = "Copied!";
   }
 
