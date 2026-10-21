@@ -10,62 +10,85 @@ const copyButton = document.querySelector("#copy-btn");
 
 let latestPlan = "";
 
-function cleanLine(line) {
-  return line
+function getSection(text, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*${escaped}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*[A-Z][A-Z ]{1,35}\\s*:\\s*|$)`,
+    "i"
+  );
+
+  return text.match(pattern)?.[1]?.trim() || "";
+}
+
+function cleanTitle(text) {
+  return text
     .replace(/^#{1,6}\s*/, "")
-    .replace(/^\s*>\s?/, "")
-    .replace(/^\s*[-*]\s+/, "")
+    .replace(/^\s*TITLE\s*:\s*/i, "")
     .replace(/\*\*/g, "")
-    .replace(/\*/g, "")
+    .replace(/^["']|["']$/g, "")
     .trim();
 }
 
-function getTitle(lines) {
-  const titleLine = lines.find((line) =>
-    /content plan:|video title:|title:/i.test(line)
+function getTitle(text) {
+  const explicitTitle = text.match(
+    /^\s*(?:#{1,3}\s*)?TITLE\s*:\s*(.+)$/im
   );
 
-  if (titleLine) {
-    const cleaned = cleanLine(titleLine)
-      .replace(/^(content plan|video title|title)\s*:\s*/i, "");
-
-    if (cleaned && !/^the truth about/i.test(cleaned) === false) {
-      return cleaned;
-    }
-
-    if (cleaned) return cleaned;
+  if (explicitTitle?.[1]) {
+    return cleanTitle(explicitTitle[1]);
   }
 
-  const candidate = lines.find((line) =>
-    /^#{1,3}\s+/.test(line) &&
-    !/^(content plan|opening hook|structured video outline|practical production details|closing call to action)/i.test(
-      cleanLine(line)
-    )
+  const oldTitle = text.match(
+    /^\s*(?:#{1,3}\s*)?(?:Video Title|Title Idea|Title)\s*:\s*(.+)$/im
   );
 
-  if (candidate) return cleanLine(candidate);
+  if (oldTitle?.[1]) {
+    return cleanTitle(oldTitle[1]);
+  }
+
+  const heading = text.match(/^#{1,3}\s+(.+)$/m);
+
+  if (heading?.[1]) {
+    const candidate = cleanTitle(heading[1]);
+
+    if (!/brightidea content plan/i.test(candidate)) {
+      return candidate;
+    }
+  }
 
   return topicInput.value.trim() || "Your AI-generated content";
 }
 
-function getOutline(lines) {
+function getOutline(text) {
+  const section = getSection(text, "OUTLINE");
+  const source = section || text;
+  const lines = source.split("\n");
   const headings = [];
   const seen = new Set();
 
-  for (const line of lines) {
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) continue;
+
     const isHeading = /^#{1,4}\s+/.test(line);
-    const isNumbered = /^\s*\d+[.)]\s+/.test(line);
+    const isNumbered = /^\d+[.)]\s+/.test(line);
+    const isBullet = /^[-*]\s+/.test(line);
 
-    if (!isHeading && !isNumbered) continue;
+    if (!isHeading && !isNumbered && !isBullet) continue;
 
-    const heading = cleanLine(line)
+    const heading = line
+      .replace(/^#{1,6}\s*/, "")
       .replace(/^\d+[.)]\s*/, "")
-      .replace(/\s*\([^)]*\)\s*$/, "")
+      .replace(/^[-*]\s*/, "")
+      .replace(/\*\*/g, "")
+      .replace(/\*/g, "")
       .trim();
 
-    if (!heading || heading.length > 100) continue;
+    if (!heading || heading.length > 120) continue;
 
-    if (/^(content plan|compelling title options|the opening hook|structured video outline|practical production details|closing call to action|voiceover\/text on screen)$/i.test(heading)) {
+    if (/^(title|hook|content|outline|production notes|call to action)$/i.test(heading)) {
       continue;
     }
 
@@ -78,6 +101,16 @@ function getOutline(lines) {
   }
 
   return headings.slice(0, 10);
+}
+
+function formatContent(text) {
+  return text
+    .replace(/\r/g, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
+    .replace(/^\s*---+\s*$/gm, "")
+    .trim();
 }
 
 form.addEventListener("submit", async (event) => {
@@ -129,23 +162,17 @@ form.addEventListener("submit", async (event) => {
 
     latestPlan = data.result;
 
-    const lines = latestPlan
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const title = getTitle(lines);
-
-    document.querySelector("#out-title").textContent = title;
+    document.querySelector("#out-title").textContent =
+      getTitle(latestPlan);
 
     const content = document.querySelector("#out-hook");
-    content.textContent = latestPlan;
+    content.textContent = formatContent(latestPlan);
     content.style.whiteSpace = "pre-wrap";
 
     const outline = document.querySelector("#out-outline");
     outline.replaceChildren();
 
-    const headings = getOutline(lines);
+    const headings = getOutline(latestPlan);
 
     if (headings.length) {
       for (const heading of headings) {
@@ -155,12 +182,12 @@ form.addEventListener("submit", async (event) => {
       }
     } else {
       const item = document.createElement("li");
-      item.textContent = "See the full content above for the main sections.";
+      item.textContent = "Your complete content is shown above.";
       outline.appendChild(item);
     }
 
     document.querySelector("#out-next").textContent =
-      "Review the draft, verify factual claims, and use the scene suggestions to plan your video.";
+      "Review your draft, verify factual claims, and refine it before publishing.";
 
     emptyState.classList.add("hidden");
     result.classList.remove("hidden");
