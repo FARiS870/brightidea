@@ -113,6 +113,96 @@ function formatContent(text) {
     .trim();
 }
 
+function renderContent(text, container) {
+  container.replaceChildren();
+
+  const lines = formatContent(text).split("\n");
+  let currentCard = null;
+
+  function addParagraph(parent, value, className = "scene-text") {
+    const p = document.createElement("p");
+    p.className = className;
+    p.textContent = value;
+    parent.appendChild(p);
+  }
+
+  function startCard(title) {
+    const card = document.createElement("div");
+    card.className = "scene-card";
+
+    const heading = document.createElement("h4");
+    heading.className = "scene-heading";
+    heading.textContent = title;
+
+    card.appendChild(heading);
+    container.appendChild(card);
+    currentCard = card;
+  }
+
+  function addLabel(parent, label, value) {
+    const heading = document.createElement("span");
+    heading.className = "scene-label";
+    heading.textContent = label;
+    parent.appendChild(heading);
+
+    if (value) addParagraph(parent, value);
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (/^Scene\s+\d+\b/i.test(line)) {
+      startCard(line);
+      continue;
+    }
+
+    const section = line.match(
+      /^(HOOK|SCRIPT|CONTENT|PRODUCTION NOTES|CALL TO ACTION)\s*:\s*(.*)$/i
+    );
+
+    if (section) {
+      startCard(section[1]);
+
+      if (section[2]) {
+        addParagraph(currentCard, section[2]);
+      }
+
+      continue;
+    }
+
+    if (/^TITLE\s*:/i.test(line)) continue;
+
+    if (/^OUTLINE\s*:/i.test(line)) {
+      currentCard = null;
+      continue;
+    }
+
+    const label = line.match(
+      /^(Narration|Voiceover|Voice-over|Visuals?|On-screen text|Sound|SFX|Camera|Action|Dialogue|Music|Transition)\s*:\s*(.*)$/i
+    );
+
+    if (label) {
+      if (!currentCard) startCard("Content");
+      addLabel(currentCard, label[1], label[2]);
+      continue;
+    }
+
+    const cleanLine = line
+      .replace(/^[-*]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .trim();
+
+    if (!cleanLine) continue;
+
+    if (currentCard) {
+      addParagraph(currentCard, cleanLine);
+    } else {
+      addParagraph(container, cleanLine, "content-line");
+    }
+  }
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -166,8 +256,7 @@ form.addEventListener("submit", async (event) => {
       getTitle(latestPlan);
 
     const content = document.querySelector("#out-hook");
-    content.textContent = formatContent(latestPlan);
-    content.style.whiteSpace = "pre-wrap";
+    renderContent(latestPlan, content);
 
     const outline = document.querySelector("#out-outline");
     outline.replaceChildren();
