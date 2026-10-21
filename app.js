@@ -14,29 +14,27 @@ const copyButton = document.querySelector("#copy-btn");
 
 let latestPlan = "";
 
-function getSection(text, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `(?:^|\\n)\\s*${escaped}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*(?:#{1,6}\\s*)?[A-Z][A-Z ]{1,35}\\s*:?\\s*(?:\\n|$)|$)`,
-    "i"
-  );
-
-  return text.match(pattern)?.[1]?.trim() || "";
+function normalizeLine(line) {
+  return line
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/\*\*/g, "")
+    .replace(/^\s*[-*]\s+/, "")
+    .trim();
 }
 
 function cleanTitle(text) {
   return text
     .replace(/^#{1,6}\s*/, "")
-    .replace(/^\s*(?:TITLE|العنوان)\s*[:：]\s*/i, "")
+    .replace(/^\s*(?:WORKING TITLE|VIDEO TITLE|TITLE|العنوان)\s*[:：]\s*/i, "")
     .replace(/\*\*/g, "")
-    .replace(/^["']|["']$/g, "")
+    .replace(/^["'“”]|["'“”]$/g, "")
     .trim();
 }
 
 function getTitle(text) {
   const patterns = [
-    /^\s*(?:#{1,3}\s*)?(?:TITLE|العنوان)\s*[:：]\s*(.+)$/im,
-    /^\s*(?:#{1,3}\s*)?(?:Video Title|Title Idea|Title)\s*:\s*(.+)$/im
+    /^\s*(?:#{1,6}\s*)?(?:WORKING TITLE|VIDEO TITLE|TITLE|العنوان)\s*[:：]\s*(.+)$/im,
+    /^\s*(?:#{1,6}\s*)?(?:Title Idea|Title)\s*:\s*(.+)$/im
   ];
 
   for (const pattern of patterns) {
@@ -44,12 +42,25 @@ function getTitle(text) {
     if (match?.[1]) return cleanTitle(match[1]);
   }
 
-  const heading = text.match(/^#{1,3}\s+(.+)$/m);
+  const genericHeadings = new Set([
+    "hook", "script", "content", "outline",
+    "production notes", "call to action",
+    "مقدمة", "المحتوى", "المخطط"
+  ]);
 
-  if (heading?.[1]) {
-    const candidate = cleanTitle(heading[1]);
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const match = line.match(/^#{1,3}\s+(.+)$/);
 
-    if (!/brightidea content plan/i.test(candidate)) {
+    if (!match) continue;
+
+    const candidate = cleanTitle(match[1]);
+
+    if (
+      candidate &&
+      !genericHeadings.has(candidate.toLowerCase()) &&
+      !/brightidea content plan/i.test(candidate)
+    ) {
       return candidate;
     }
   }
@@ -68,40 +79,58 @@ function formatContent(text) {
 }
 
 function getOutline(text) {
-  const section = getSection(text, "OUTLINE");
-  const source = section || text;
+  const lines = formatContent(text).split("\n");
   const headings = [];
   const seen = new Set();
+  let inOutline = false;
 
-  for (const rawLine of source.split("\n")) {
-    const line = rawLine.trim();
+  for (const rawLine of lines) {
+    const line = normalizeLine(rawLine);
 
     if (!line) continue;
 
-    const isHeading = /^#{1,4}\s+/.test(line);
-    const isNumbered = /^\d+[.)]\s+/.test(line);
-    const isBullet = /^[-*]\s+/.test(line);
-
-    if (!isHeading && !isNumbered && !isBullet) continue;
-
-    const heading = line
-      .replace(/^#{1,6}\s*/, "")
-      .replace(/^\d+[.)]\s*/, "")
-      .replace(/^[-*]\s*/, "")
-      .replace(/\*\*/g, "")
-      .trim();
-
-    if (!heading || heading.length > 120) continue;
-
-    if (/^(title|hook|content|outline|production notes|call to action)$/i.test(heading)) {
+    if (/^(?:OUTLINE|المخطط|مخطط المحتوى)\s*[:：]?\s*$/i.test(line)) {
+      inOutline = true;
       continue;
     }
 
-    const key = heading.toLowerCase();
+    if (
+      inOutline &&
+      /^(?:NEXT STEP|الخطوة التالية)\s*[:：]?\s*$/i.test(line)
+    ) {
+      break;
+    }
 
-    if (!seen.has(key)) {
-      seen.add(key);
-      headings.push(heading);
+    if (inOutline) {
+      const itemMatch = line.match(/^(?:\d+[.)]|[-*•])\s+(.+)$/);
+      const value = itemMatch ? itemMatch[1].trim() : line;
+
+      if (!value || value.length > 180) continue;
+
+      const key = value.toLowerCase();
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        headings.push(value);
+      }
+    }
+  }
+
+  // Fallback for AI responses that omit an OUTLINE heading.
+  if (!headings.length) {
+    for (const rawLine of lines) {
+      const line = normalizeLine(rawLine);
+      const match = line.match(/^\d+[.)]\s+(.+)$/);
+
+      if (!match) continue;
+
+      const value = match[1].trim();
+      const key = value.toLowerCase();
+
+      if (value && !seen.has(key)) {
+        seen.add(key);
+        headings.push(value);
+      }
     }
   }
 
@@ -116,6 +145,8 @@ function renderContent(text, container) {
   let skipOutline = false;
 
   function addParagraph(parent, value, className = "scene-text") {
+    if (!value) return;
+
     const paragraph = document.createElement("p");
     paragraph.className = className;
     paragraph.textContent = value;
@@ -138,68 +169,77 @@ function renderContent(text, container) {
   function addLabel(parent, label, value) {
     const labelElement = document.createElement("span");
     labelElement.className = "scene-label";
-    labelElement.textContent = label;
+    labelElement.textContent = label.replace(/[:：]\s*$/, "");
     parent.appendChild(labelElement);
 
     if (value) addParagraph(parent, value);
   }
+
+  const scenePattern =
+    /^(?:scene\s+\d+\b.*|ال?م{1,2}شهد\s+(?:الأول|الاول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|\d+)\s*[:：]?.*)$/i;
+
+  const sectionPattern =
+    /^(HOOK|SCRIPT|CONTENT|PRODUCTION NOTES|CALL TO ACTION|مقدمة|المحتوى|ملاحظات الإنتاج|دعوة لاتخاذ إجراء)(?:\s*[:：]\s*(.*))?$/i;
+
+  const labelPattern =
+    /^(Narration|Voiceover|Voice-over|Visuals?|Visual Description|On-screen text|Sound|SFX|Camera|Action|Dialogue|Music|Transition|التعليق الصوتي|التعليق|السرد|المشهد البصري|الوصف البصري|المرئي|الصورة|الموسيقى|النص على الشاشة|المؤثرات الصوتية|المؤثرات|الصوت|الحوار)\s*[:：]\s*(.*)$/i;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
 
     if (!line) continue;
 
-    // Skip the separate outline at the end of the generated response.
-    if (/^(?:OUTLINE|المخطط)\s*[:：]?\s*$/i.test(line)) {
+    // Stop displaying the outline inside the content cards.
+    if (/^(?:OUTLINE|المخطط|مخطط المحتوى)\s*[:：]?\s*$/i.test(line)) {
       skipOutline = true;
       currentCard = null;
       continue;
     }
 
-    if (skipOutline) continue;
-
-    // Ignore title lines because the title has its own display area.
-    if (/^(?:TITLE|العنوان)\s*[:：]/i.test(line)) continue;
-
-    // Support English and Arabic scene headings.
-    const sceneMatch = line.match(
-      /^(?:Scene\s+\d+\b.*|المشهد\s+(?:الأول|الثاني|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|\d+)\s*[:：]?.*)$/i
-    );
-
-    if (sceneMatch) {
-      startCard(line);
+    if (skipOutline) {
+      if (/^(?:NEXT STEP|الخطوة التالية)\s*[:：]?\s*$/i.test(line)) {
+        break;
+      }
       continue;
     }
 
-    // Support section headings with or without a colon.
-    const sectionMatch = line.match(
-      /^(HOOK|SCRIPT|CONTENT|PRODUCTION NOTES|CALL TO ACTION|مقدمة|المحتوى|ملاحظات الإنتاج|دعوة لاتخاذ إجراء)(?:\s*[:：]\s*(.*))?$/i
-    );
+    // Ignore title labels: the title has its own display area.
+    if (/^(?:WORKING TITLE|VIDEO TITLE|TITLE|العنوان)\s*[:：]/i.test(line)) {
+      continue;
+    }
+
+    // Create a separate card for each scene.
+    // Also tolerate the common typo "الممشهد".
+    if (scenePattern.test(line)) {
+      startCard(line.replace(/[:：]\s*$/, ""));
+      continue;
+    }
+
+    // Create cards for major content sections.
+    const sectionMatch = line.match(sectionPattern);
 
     if (sectionMatch) {
-      startCard(sectionMatch[1]);
+      startCard(sectionMatch[1].trim());
 
       if (sectionMatch[2]) {
-        addParagraph(currentCard, sectionMatch[2]);
+        addParagraph(currentCard, sectionMatch[2].trim());
       }
 
       continue;
     }
 
-    // Support narration and production labels in both languages.
-    const labelMatch = line.match(
-      /^(Narration|Voiceover|Voice-over|Visuals?|On-screen text|Sound|SFX|Camera|Action|Dialogue|Music|Transition|السرد|المرئي|الموسيقى|النص على الشاشة|الصوت|الحوار)\s*[:：]\s*(.*)$/i
-    );
+    // Support English and Arabic production labels.
+    const labelMatch = line.match(labelPattern);
 
     if (labelMatch) {
       if (!currentCard) startCard("Content");
 
-      addLabel(currentCard, labelMatch[1], labelMatch[2]);
+      addLabel(currentCard, labelMatch[1], labelMatch[2].trim());
       continue;
     }
 
     const cleanLine = line
-      .replace(/^[-*]\s+/, "")
+      .replace(/^[-*•]\s+/, "")
       .replace(/^\d+[.)]\s+/, "")
       .trim();
 
