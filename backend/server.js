@@ -1,8 +1,13 @@
 
 import express from "express";
 import cors from "cors";
+
 const app = express();
-app.use(cors({ origin: "https://brightidea.onrender.com" }));
+
+app.use(cors({
+  origin: "https://brightidea.onrender.com"
+}));
+
 app.use(express.json({ limit: "20kb" }));
 
 app.get("/", (_req, res) => {
@@ -31,7 +36,17 @@ app.post("/api/generate", async (req, res) => {
       });
     }
 
-    const allowedFormats = ["video", "blog", "social"];
+    const allowedFormats = [
+      "video",
+      "short",
+      "blog",
+      "social",
+      "YouTube video",
+      "YouTube Short",
+      "Blog post",
+      "Social media post"
+    ];
+
     const allowedLanguages = ["English", "Arabic"];
 
     const safeFormat = allowedFormats.includes(format)
@@ -43,24 +58,86 @@ app.post("/api/generate", async (req, res) => {
       : "English";
 
     const safeAudience =
-      typeof audience === "string"
-        ? audience.slice(0, 100)
+      typeof audience === "string" && audience.trim()
+        ? audience.trim().slice(0, 100)
         : "General audience";
 
+    const normalizedFormat = safeFormat.toLowerCase();
+
+    let formatInstructions = "";
+
+    if (
+      normalizedFormat === "short" ||
+      normalizedFormat === "youtube short"
+    ) {
+      formatInstructions = `
+Create a YouTube Short script lasting 45-60 seconds.
+Include a short, catchy title, a hook for the first 2 seconds,
+3-5 brief scenes with narration and visual suggestions,
+and a short closing call to action.
+Keep the total narration concise enough for 45-60 seconds.
+Do not create a long-form video plan.
+`;
+    } else if (
+      normalizedFormat === "blog" ||
+      normalizedFormat === "blog post"
+    ) {
+      formatInstructions = `
+Create a blog post with a clear title, introduction,
+useful section headings, a helpful conclusion,
+and a suitable call to action.
+`;
+    } else if (
+      normalizedFormat === "social" ||
+      normalizedFormat === "social media post"
+    ) {
+      formatInstructions = `
+Create a ready-to-publish social media post with a strong opening,
+concise main text, and a relevant call to action.
+Suggest suitable hashtags where appropriate.
+`;
+    } else {
+      formatInstructions = `
+Create a YouTube video plan with a clear title,
+an opening hook, a structured outline with scene suggestions,
+practical production notes, and a closing call to action.
+Include a sensible estimated video duration.
+`;
+    }
+
     const prompt = `
-You are BrightIdea, a creative content assistant.
-Create a useful, original content plan.
+You are BrightIdea, a professional content planning assistant.
 
-Topic: ${topic.trim()}
-Format: ${safeFormat}
-Output language: ${safeLanguage}
-Target audience: ${safeAudience}
+Create original, useful content based on the user's request.
+Follow the selected format exactly. Do not change it.
 
-Include a compelling title, a strong opening hook,
-a clear structured outline, practical details,
-and a closing call to action.
-Use headings and readable formatting.
-Avoid unsupported factual claims.
+TOPIC: ${topic.trim()}
+FORMAT: ${safeFormat}
+OUTPUT LANGUAGE: ${safeLanguage}
+TARGET AUDIENCE: ${safeAudience}
+
+${formatInstructions}
+
+IMPORTANT OUTPUT RULES:
+- Write entirely in ${safeLanguage}, except proper names when needed.
+- Start with this exact label on its own line:
+TITLE: followed by one specific, engaging title for the requested content.
+- The title must describe the user's topic, not the BrightIdea app.
+- Do not use greetings or introduce yourself.
+- Use these section labels on separate lines:
+HOOK:
+CONTENT:
+OUTLINE:
+PRODUCTION NOTES:
+CALL TO ACTION:
+- Adapt the sections to the selected format.
+- For a Short, include scene-by-scene narration and visual suggestions.
+- For a blog or social post, make the content appropriate to that format.
+- Use simple, readable plain text headings.
+- Do not wrap the response in a code block.
+- Avoid unnecessary repetition and generic filler.
+- Do not invent facts. Clearly qualify uncertain claims.
+- Make the result useful to create, edit, and publish.
 `;
 
     const response = await fetch(
@@ -76,7 +153,8 @@ Avoid unsupported factual claims.
             { parts: [{ text: prompt }] }
           ],
           generationConfig: {
-            maxOutputTokens: 1200
+            maxOutputTokens: 1600,
+            temperature: 0.7
           }
         })
       }
