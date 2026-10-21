@@ -74,7 +74,7 @@ function getOutline(text) {
 
     const isHeading = /^#{1,4}\s+/.test(line);
     const isNumbered = /^\d+[.)]\s+/.test(line);
-    const isBullet = /^[-*]\s+/.test(line);
+    const isBullet = /^\\?[-*]\s+/.test(line);
 
     if (!isHeading && !isNumbered && !isBullet) continue;
 
