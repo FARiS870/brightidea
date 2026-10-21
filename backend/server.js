@@ -1,7 +1,8 @@
 
 import express from "express";
-
+import cors from "cors";
 const app = express();
+app.use(cors({ origin: "https://brightidea.onrender.com" }));
 app.use(express.json({ limit: "20kb" }));
 
 app.get("/", (_req, res) => {
