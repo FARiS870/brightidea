@@ -92,3 +92,50 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 30px; text-align: ce
   .status { font-size: 10px; }
   .two-col { grid-template-columns: 1fr; gap: 0; }
 }
+
+/* Improved AI content readability */
+#out-hook {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+
+#out-hook .scene-card {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfb;
+}
+
+#out-hook .scene-heading {
+  margin-bottom: 10px;
+  color: var(--green);
+  font: 700 15px Manrope, sans-serif;
+}
+
+#out-hook .scene-label {
+  display: block;
+  margin: 12px 0 4px;
+  color: var(--green-dark);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .6px;
+}
+
+#out-hook .scene-text {
+  margin: 0;
+  color: #46534c;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+#out-hook .content-line {
+  margin: 7px 0;
+}
+
+@media (max-width: 420px) {
+  #out-hook .scene-card {
+    padding: 12px;
+  }
+}
